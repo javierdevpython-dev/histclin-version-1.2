@@ -83,13 +83,18 @@ else:
 db = SQLAlchemy(app)
 
 # Configurar SocketIO con timeouts y parámetros seguros
+# En producción (Render) usar eventlet, en desarrollo threading
+import os
+socketio_async_mode = 'eventlet' if IS_PRODUCTION else 'threading'
 socketio = SocketIO(app, 
                     cors_allowed_origins="*",
-                    async_mode='threading',
-                    ping_timeout=10,
-                    ping_interval=5,
+                    async_mode=socketio_async_mode,
+                    ping_timeout=60,
+                    ping_interval=25,
                     logger=False,
-                    engineio_logger=False)
+                    engineio_logger=False,
+                    allow_upgrades=True,
+                    transports=['polling', 'websocket'])
 
 # Modelo para Bioanalista
 class Bioanalista(db.Model):

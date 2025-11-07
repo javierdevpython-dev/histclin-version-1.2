@@ -215,6 +215,9 @@ def create_sample_data():
 
 def main():
     """Función principal"""
+    import os
+    is_production = os.environ.get('FLASK_ENV') == 'production' or os.environ.get('RENDER') == 'true'
+    
     print("=== Inicialización de la Base de Datos Medisoft ===")
     print()
     
@@ -223,15 +226,18 @@ def main():
         print()
         create_admin_user()
         print()
-        create_sample_data()
-        print()
+        # Solo crear datos de ejemplo en desarrollo
+        if not is_production:
+            create_sample_data()
+            print()
         print("=== Inicialización completada exitosamente ===")
         print()
-        print("Para iniciar la aplicación:")
-        print("1. Asegúrate de tener PostgreSQL instalado y corriendo")
-        print("2. Configura las variables de entorno en un archivo .env")
-        print("3. Ejecuta: python app.py")
-        print()
+        if not is_production:
+            print("Para iniciar la aplicación:")
+            print("1. Asegúrate de tener PostgreSQL instalado y corriendo")
+            print("2. Configura las variables de entorno en un archivo .env")
+            print("3. Ejecuta: python app.py")
+            print()
         print("Credenciales de acceso:")
         print("Usuario: admin")
         print("Contraseña: admin123")

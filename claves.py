@@ -1,13 +1,22 @@
 import os
 from flask import Flask
 from werkzeug.security import generate_password_hash
+from dotenv import load_dotenv
 
-# Configurar la ruta a la base de datos
-basedir = os.path.abspath(os.path.dirname(__file__))
-db_path = os.path.join(basedir, 'instance', 'medisoft.db')
+load_dotenv()
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+# Usar PostgreSQL en lugar de SQLite
+if os.environ.get('DATABASE_URL'):
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+else:
+    # Construir URL desde variables individuales
+    db_user = os.environ.get('POSTGRES_USER') or 'postgres'
+    db_password = os.environ.get('POSTGRES_PASSWORD') or 'postgres'
+    db_host = os.environ.get('POSTGRES_HOST') or 'localhost'
+    db_port = os.environ.get('POSTGRES_PORT') or '5432'
+    db_name = os.environ.get('POSTGRES_DB') or 'medisoft_db'
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Inicializar DB

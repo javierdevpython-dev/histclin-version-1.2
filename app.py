@@ -71,11 +71,15 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import os
 
-from config import config
+from config import config, IS_PRODUCTION
 import os
 
 app = Flask(__name__)
-app.config.from_object(config['development'])
+# Usar configuración de producción si está en Render, sino desarrollo
+if isinstance(config, dict):
+    app.config.from_object(config['development'])
+else:
+    app.config.from_object(config)
 db = SQLAlchemy(app)
 
 # Configurar SocketIO con timeouts y parámetros seguros

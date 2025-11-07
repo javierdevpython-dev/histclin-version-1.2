@@ -80,7 +80,28 @@ if isinstance(config, dict):
     app.config.from_object(config['development'])
 else:
     app.config.from_object(config)
+
+# Configurar SQLAlchemy con opciones de pool para producción
+# Flask-SQLAlchemy 3.x soporta SQLALCHEMY_ENGINE_OPTIONS
+if IS_PRODUCTION:
+    # Configurar opciones del engine para manejar reconexiones
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_size': 5,
+        'pool_recycle': 300,  # Reciclar conexiones cada 5 minutos
+        'pool_pre_ping': True,  # Verificar conexiones antes de usarlas (reconexión automática)
+        'max_overflow': 10,
+        'connect_args': {
+            'connect_timeout': 10,
+            'sslmode': 'prefer'
+        }
+    }
+
 db = SQLAlchemy(app)
+
+# Aplicar configuración del pool después de crear la instancia (si es necesario)
+if IS_PRODUCTION and hasattr(db.engine, 'pool'):
+    # Asegurar que pool_pre_ping esté activado
+    db.engine.pool._pre_ping = True
 
 # Configurar SocketIO con timeouts y parámetros seguros
 # En producción (Render) usar eventlet, en desarrollo threading
@@ -1299,6 +1320,7 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    from sqlalchemy.exc import OperationalError, DisconnectionError
     if request.method == 'POST':
         try:
             username = request.form.get('username', '').strip()
@@ -1307,7 +1329,25 @@ def login():
             if not username or not password:
                 flash('Por favor, completa todos los campos', 'danger')
             else:
-                user = Usuario.query.filter_by(username=username).first()
+                # Intentar con reconexión automática
+                max_retries = 3
+                user = None
+                for attempt in range(max_retries):
+                    try:
+                        user = Usuario.query.filter_by(username=username).first()
+                        break
+                    except (OperationalError, DisconnectionError) as e:
+                        if attempt < max_retries - 1:
+                            try:
+                                db.session.close()
+                                db.engine.dispose()
+                                import time
+                                time.sleep(1)
+                                continue
+                            except:
+                                pass
+                        flash('Error de conexión a la base de datos. Por favor, intenta de nuevo.', 'danger')
+                        return render_template('login.html')
                 
                 if user:
                     # Verificar si el usuario está activo
@@ -1316,8 +1356,11 @@ def login():
                     elif check_password_hash(user.password_hash, password):
                         login_user(user)
                         # Actualizar último acceso
-                        user.ultimo_acceso = datetime.utcnow()
-                        db.session.commit()
+                        try:
+                            user.ultimo_acceso = datetime.utcnow()
+                            db.session.commit()
+                        except:
+                            db.session.rollback()
                         next_page = request.args.get('next')
                         return redirect(next_page) if next_page else redirect(url_for('index'))
                     else:
@@ -1335,6 +1378,7 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     from werkzeug.security import generate_password_hash
+    from sqlalchemy.exc import OperationalError, DisconnectionError
     error = None
     success = None
     if request.method == 'POST':
@@ -1346,29 +1390,55 @@ def register():
         if not username or not email or not password or not nombre_completo:
             error = 'Todos los campos son obligatorios.'
         else:
-            # Verificar si el usuario ya existe
-            if Usuario.query.filter_by(username=username).first():
-                error = 'El usuario ya existe.'
-            elif Usuario.query.filter_by(email=email).first():
-                error = 'El email ya está registrado.'
-            else:
-                nuevo_usuario = Usuario(
-                    username=username,
-                    email=email,
-                    password_hash=generate_password_hash(password),
-                    rol=rol,
-                    nombre_completo=nombre_completo,
-                    activo=True
-                )
+            # Intentar con reconexión automática
+            max_retries = 3
+            for attempt in range(max_retries):
                 try:
+                    # Verificar si el usuario ya existe
+                    existing_user = Usuario.query.filter_by(username=username).first()
+                    if existing_user:
+                        error = 'El usuario ya existe.'
+                        break
+                    
+                    existing_email = Usuario.query.filter_by(email=email).first()
+                    if existing_email:
+                        error = 'El email ya está registrado.'
+                        break
+                    
+                    # Crear nuevo usuario
+                    nuevo_usuario = Usuario(
+                        username=username,
+                        email=email,
+                        password_hash=generate_password_hash(password),
+                        rol=rol,
+                        nombre_completo=nombre_completo,
+                        activo=True
+                    )
                     db.session.add(nuevo_usuario)
                     db.session.commit()
                     success = 'Usuario registrado exitosamente. Ahora puedes iniciar sesión.'
+                    break
+                except (OperationalError, DisconnectionError) as e:
+                    db.session.rollback()
+                    if attempt < max_retries - 1:
+                        # Intentar reconectar
+                        try:
+                            db.session.close()
+                            db.engine.dispose()
+                            import time
+                            time.sleep(1)
+                            continue
+                        except:
+                            pass
+                    error = 'Error de conexión a la base de datos. Por favor, intenta de nuevo.'
+                    import traceback
+                    traceback.print_exc()
                 except Exception as e:
                     db.session.rollback()
                     error = f'Error al registrar usuario: {str(e)}'
                     import traceback
                     traceback.print_exc()
+                    break
     return render_template('register.html', error=error, success=success)
 
 @app.route('/logout')

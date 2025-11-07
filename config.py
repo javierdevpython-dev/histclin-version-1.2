@@ -24,6 +24,19 @@ class Config:
         SQLALCHEMY_DATABASE_URI = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
+    # Configuración del pool de conexiones para producción
+    # Maneja reconexiones automáticas y timeouts
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 5,
+        'pool_recycle': 300,  # Reciclar conexiones cada 5 minutos
+        'pool_pre_ping': True,  # Verificar conexiones antes de usarlas
+        'max_overflow': 10,
+        'connect_args': {
+            'connect_timeout': 10,
+            'sslmode': 'prefer'  # Usar SSL si está disponible
+        }
+    }
+    
     # Network configuration
     # Render usa la variable PORT automáticamente
     HOST = os.environ.get('HOST') or '0.0.0.0'

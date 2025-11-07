@@ -1300,15 +1300,34 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        user = Usuario.query.filter_by(username=username).first()
-        
-        if user and check_password_hash(user.password_hash, password):
-            login_user(user)
-            return redirect(url_for('index'))
-        else:
-            flash('Usuario o contraseña incorrectos')
+        try:
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
+            
+            if not username or not password:
+                flash('Por favor, completa todos los campos', 'danger')
+            else:
+                user = Usuario.query.filter_by(username=username).first()
+                
+                if user:
+                    # Verificar si el usuario está activo
+                    if not user.activo:
+                        flash('Tu cuenta está desactivada. Contacta al administrador.', 'danger')
+                    elif check_password_hash(user.password_hash, password):
+                        login_user(user)
+                        # Actualizar último acceso
+                        user.ultimo_acceso = datetime.utcnow()
+                        db.session.commit()
+                        next_page = request.args.get('next')
+                        return redirect(next_page) if next_page else redirect(url_for('index'))
+                    else:
+                        flash('Usuario o contraseña incorrectos', 'danger')
+                else:
+                    flash('Usuario o contraseña incorrectos', 'danger')
+        except Exception as e:
+            flash(f'Error al iniciar sesión: {str(e)}', 'danger')
+            import traceback
+            traceback.print_exc()
     
     return render_template('login.html')
 
@@ -1348,6 +1367,8 @@ def register():
                 except Exception as e:
                     db.session.rollback()
                     error = f'Error al registrar usuario: {str(e)}'
+                    import traceback
+                    traceback.print_exc()
     return render_template('register.html', error=error, success=success)
 
 @app.route('/logout')
@@ -2890,6 +2911,46 @@ def handle_send_message(data):
         'message': mensaje
     }, broadcast=True)
 
+# Crear tablas automáticamente si no existen (solo en producción/Render)
+# Esto se ejecuta cuando gunicorn importa el módulo
+def initialize_database():
+    """Inicializar base de datos en producción"""
+    if IS_PRODUCTION:
+        with app.app_context():
+            try:
+                from sqlalchemy import inspect
+                inspector = inspect(db.engine)
+                tables = inspector.get_table_names()
+                
+                if not tables:
+                    print("⚠️  No se encontraron tablas. Creando tablas...")
+                    db.create_all()
+                    print("✅ Tablas creadas")
+                    
+                    # Crear usuario admin si no existe
+                    from werkzeug.security import generate_password_hash
+                    admin = Usuario.query.filter_by(username='admin').first()
+                    if not admin:
+                        admin = Usuario(
+                            username='admin',
+                            email='admin@medisoft.com',
+                            password_hash=generate_password_hash('admin123'),
+                            rol='administrador',
+                            nombre_completo='Administrador del Sistema',
+                            activo=True
+                        )
+                        db.session.add(admin)
+                        db.session.commit()
+                        print("✅ Usuario administrador creado (admin/admin123)")
+            except Exception as e:
+                print(f"⚠️  Error al inicializar base de datos: {e}")
+                import traceback
+                traceback.print_exc()
+                # No fallar el inicio si hay error, pero registrar el problema
+
+# Inicializar base de datos al importar el módulo (solo en producción)
+initialize_database()
+
 if __name__ == '__main__':
     import sys
     try:
@@ -2907,38 +2968,3 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Error al iniciar el servidor: {e}")
         sys.exit(1)
-
-# Crear tablas automáticamente si no existen (solo en producción/Render)
-# Esto se ejecuta cuando gunicorn importa el módulo
-if IS_PRODUCTION:
-    with app.app_context():
-        try:
-            from sqlalchemy import inspect
-            inspector = inspect(db.engine)
-            tables = inspector.get_table_names()
-            
-            if not tables:
-                print("⚠️  No se encontraron tablas. Creando tablas...")
-                db.create_all()
-                print("✅ Tablas creadas")
-                
-                # Crear usuario admin si no existe
-                from werkzeug.security import generate_password_hash
-                admin = Usuario.query.filter_by(username='admin').first()
-                if not admin:
-                    admin = Usuario(
-                        username='admin',
-                        email='admin@medisoft.com',
-                        password_hash=generate_password_hash('admin123'),
-                        rol='administrador',
-                        nombre_completo='Administrador del Sistema',
-                        activo=True
-                    )
-                    db.session.add(admin)
-                    db.session.commit()
-                    print("✅ Usuario administrador creado (admin/admin123)")
-        except Exception as e:
-            print(f"⚠️  Error al inicializar base de datos: {e}")
-            import traceback
-            traceback.print_exc()
-            # No fallar el inicio si hay error, pero registrar el problema

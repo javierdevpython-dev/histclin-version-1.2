@@ -2902,3 +2902,38 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Error al iniciar el servidor: {e}")
         sys.exit(1)
+
+# Crear tablas automáticamente si no existen (solo en producción/Render)
+# Esto se ejecuta cuando gunicorn importa el módulo
+if IS_PRODUCTION:
+    with app.app_context():
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            tables = inspector.get_table_names()
+            
+            if not tables:
+                print("⚠️  No se encontraron tablas. Creando tablas...")
+                db.create_all()
+                print("✅ Tablas creadas")
+                
+                # Crear usuario admin si no existe
+                from werkzeug.security import generate_password_hash
+                admin = Usuario.query.filter_by(username='admin').first()
+                if not admin:
+                    admin = Usuario(
+                        username='admin',
+                        email='admin@medisoft.com',
+                        password_hash=generate_password_hash('admin123'),
+                        rol='administrador',
+                        nombre_completo='Administrador del Sistema',
+                        activo=True
+                    )
+                    db.session.add(admin)
+                    db.session.commit()
+                    print("✅ Usuario administrador creado (admin/admin123)")
+        except Exception as e:
+            print(f"⚠️  Error al inicializar base de datos: {e}")
+            import traceback
+            traceback.print_exc()
+            # No fallar el inicio si hay error, pero registrar el problema
